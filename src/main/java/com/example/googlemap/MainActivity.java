@@ -1,10 +1,13 @@
-package com.example.poket.myapplication;
+package com.example.googlemap;
 
+import android.app.ActionBar;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Fragment;
 import android.app.TabActivity;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
@@ -17,6 +20,7 @@ import android.graphics.Color;
 import android.graphics.EmbossMaskFilter;
 import android.graphics.Paint;
 import android.os.Bundle;
+import android.support.v4.app.FragmentActivity;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -35,6 +39,10 @@ import android.widget.TabHost;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+
 import org.w3c.dom.Text;
 
 import java.text.SimpleDateFormat;
@@ -42,37 +50,38 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 
-public class MainActivity extends TabActivity {
+public class MainActivity extends TabActivity implements OnMapReadyCallback {
     SQLiteDatabase sqlDB;
     DBHelper db;
     ScheduleAdapter sa = null;
     ArrayList<LinearLayout> exerciseList = new ArrayList<LinearLayout>();
     ArrayList<LinearLayout> scheduleList = new ArrayList<LinearLayout>();
+    ArrayList<LinearLayout> searchList = new ArrayList<LinearLayout>();
     int currentY,currentM,currentD;
+    GoogleMap gm;
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        dbSetting();
         TabHost th = getTabHost();
         TabHost.TabSpec tc1 = th.newTabSpec("").setContent(R.id.tab1).setIndicator("운동리스트");
         TabHost.TabSpec tc2 = th.newTabSpec("").setContent(R.id.tab2).setIndicator("일정표");
-        TabHost.TabSpec tc3 = th.newTabSpec("").setContent(R.id.tab3).setIndicator("구글맵");
+        TabHost.TabSpec tc3 = th.newTabSpec("").setContent(R.id.tab3).setIndicator("헬스장 찾기");
         th.addTab(tc1);
         th.addTab(tc2);
         th.addTab(tc3);
-        dbSetting();
         tab1Setting();
         tab2Setting();
         tab3Setting();
-
-
     }
     private void dbSetting()
     {
-        db = new DBHelper(getApplicationContext());
+        db = new DBHelper(MainActivity.this);
         sqlDB =  db.getWritableDatabase();
         db.onUpgrade(sqlDB,1,2);
-        sqlDB.close();
+
     }
 
     private void tab1Setting()
@@ -111,7 +120,6 @@ public class MainActivity extends TabActivity {
         ea.notifyDataSetChanged();
         ListView lv = (ListView)findViewById(R.id.listView);
         lv.setAdapter(ea);
-        sqlDB.close();
     }
     private void tab2Setting()
     {
@@ -171,14 +179,14 @@ public class MainActivity extends TabActivity {
                 arrayList.add("플랭크");
                 spinner.setAdapter(new ArrayAdapter<String>(MainActivity.this,android.R.layout.simple_spinner_dropdown_item,arrayList));
                 spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-                         @Override
-                         public void onItemSelected(AdapterView<?> adapterView, View view, int i, long l) {
-                            editText.setText(arrayList.get(i));
-                         }
-                         @Override
-                         public void onNothingSelected(AdapterView<?> adapterView) {}
-                         });
-                        alg.setTitle("운동 추가");
+                    @Override
+                    public void onItemSelected(AdapterView<?> adapterView, View view, int i, long l) {
+                        editText.setText(arrayList.get(i));
+                    }
+                    @Override
+                    public void onNothingSelected(AdapterView<?> adapterView) {}
+                });
+                alg.setTitle("운동 추가");
                 alg.setView(inflateView);
                 alg.setPositiveButton("확인", new DialogInterface.OnClickListener() {
                     @Override
@@ -301,13 +309,80 @@ public class MainActivity extends TabActivity {
     }
     private void tab3Setting()
     {
+        ListView lvSearch = (ListView)findViewById(R.id.listSearch);
+        Button searchBtn = (Button)findViewById(R.id.searchBtn);
+        final EditText searchEdit = (EditText)findViewById(R.id.editSearch);
+        final SearchAdapter sa = new SearchAdapter();
+        lvSearch.setAdapter(sa);
+        searchBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                sqlDB = db.getReadableDatabase();
+                Cursor cursor = sqlDB.rawQuery("select * from health;",null);
+                String address = searchEdit.getText().toString();
+                searchList = new ArrayList<LinearLayout>();
+                while(cursor.moveToNext())
+                {
+                    final String nameStr = cursor.getString(0);
+                    final String addressStr = cursor.getString(1);
+                    final double latDouble = cursor.getDouble(2);
+                    final double lngDouble = cursor.getDouble(3);
+                    final int id = cursor.getInt(4);
+                    if(addressStr.contains(address) || nameStr.contains(address))
+                    {
+                        LinearLayout ll = new LinearLayout(MainActivity.this);
+                        ll.setOrientation(LinearLayout.HORIZONTAL);
+                        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                        lp.weight = 1;
+                        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                        lp2.weight = 4;
+                        TextView tv = new TextView(MainActivity.this);
+                        tv.setText(nameStr+"   "+addressStr);
+                        tv.setLayoutParams(lp);
+                        Button button = new Button(MainActivity.this);
+                        button.setText("지도");
+                        button.setLayoutParams(lp2);
+                        ll.addView(tv);
+                        ll.addView(button);
+                        button.setOnClickListener(new View.OnClickListener() {
+                            @Override
+                            public void onClick(View view) {
+                                Intent intent = new Intent(MainActivity.this,MapsActivity.class);
+                                intent.putExtra("name",nameStr);
+                                intent.putExtra("address",addressStr);
+                                intent.putExtra("lat",latDouble);
+                                intent.putExtra("lng",lngDouble);
+                                startActivity(intent);
+                            }
+                        });
+                        searchList.add(ll);
+                        ll.setOnClickListener(new View.OnClickListener() {
+                            @Override
+                            public void onClick(View view) {
+                                Intent intent = new Intent(MainActivity.this,DetailActivity.class);
+                                intent.putExtra("id",id);
+                                startActivity(intent);
+                            }
+                        });
+
+                    }
+                    sa.notifyDataSetChanged();
+                }
+            }
+
+        });
+
+    }
+
+    @Override
+    public void onMapReady(GoogleMap googleMap) {
 
     }
 
     public class DBHelper extends SQLiteOpenHelper{
         public DBHelper(Context context)
         {
-            super(context,"groupDB",null,1);
+            super(context,"groupDB3",null,1);
         }
         @Override
         public void onCreate(SQLiteDatabase sqLiteDatabase) {
@@ -329,13 +404,28 @@ public class MainActivity extends TabActivity {
             {
                 //이미 생성되어있음
             }
-            sqLiteDatabase.close();
-        }
+            sqLiteDatabase.execSQL("CREATE TABLE health(name CHAR(30) ,address CHAR(30),lat DOUBLE ,lng DOUBLE, id INTEGER);");
+            insertDB(sqLiteDatabase,"커브스동탄클럽","경기도 화성시 반송동 107-7",37.199688, 127.072039,11694460); // id값 추가
+            insertDB(sqLiteDatabase,"바디앤소울 스포츠클럽 동탄점","경기도 화성시 반송동 96",37.204894, 127.068908,17192257);
+            insertDB(sqLiteDatabase,"크로스핏마블","경기 화성시 노작로 161 신라스테이션",37.202547, 127.073184,2065147984);
+            insertDB(sqLiteDatabase,"숀리바디스쿨 논현점","서울 강남구 논현로116길 6",37.509297, 127.033660,11124690);
+            insertDB(sqLiteDatabase,"강남YMCA강남지회","서울 강남구 언주로 615",37.510671, 127.035850,8148017);
+            insertDB(sqLiteDatabase,"박찬호피트니스","서울 강남구 테헤란로2길 27",37.497938, 127.027626,18468555);
+            insertDB(sqLiteDatabase,"스포애니 논현역점","서울 강남구 학동로4길 15 동화히스토리",37.510493, 127.023489,26495379);
+            insertDB(sqLiteDatabase,"나비정원휘트니스","서울 강남구 학동로20길 13",37.550397, 127.145546,11539730);
+            insertDB(sqLiteDatabase,"스마트휘트니스","서울 마포구 양화로 127",37.554875, 126.920482,12065481);
+            insertDB(sqLiteDatabase,"VIP휘트니스","서울 마포구 월드컵북로 30 동서빌딩",37.557412, 126.919158,16990262);
+            //37.554875, 126.920482
 
+        }
+        public void insertDB(SQLiteDatabase sqLiteDatabase,String name,String address , double lat , double lng,int id)
+        {
+            sqLiteDatabase.execSQL("INSERT INTO health values('"+name+"','"+address+"',"+lat+","+lng+","+id+");");
+        }
         @Override
         public void onUpgrade(SQLiteDatabase sqLiteDatabase, int i, int i1) {
             sqLiteDatabase.execSQL("DROP TABLE IF EXISTS exercise");
-           // sqLiteDatabase.execSQL("DROP TABLE IF EXISTS schedule");
+             sqLiteDatabase.execSQL("DROP TABLE IF EXISTS health");
             onCreate(sqLiteDatabase);
         }
 
@@ -380,6 +470,27 @@ public class MainActivity extends TabActivity {
         @Override
         public View getView(int i, View view, ViewGroup viewGroup) {
             return exerciseList.get(i);
+        }
+    }
+    public class SearchAdapter extends BaseAdapter{
+        @Override
+        public int getCount() {
+            return searchList.size();
+        }
+
+        @Override
+        public Object getItem(int i) {
+            return null;
+        }
+
+        @Override
+        public long getItemId(int i) {
+            return 0;
+        }
+
+        @Override
+        public View getView(int i, View view, ViewGroup viewGroup) {
+            return searchList.get(i);
         }
     }
 }
